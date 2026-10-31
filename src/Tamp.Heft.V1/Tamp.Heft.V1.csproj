@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>Tamp.Heft.V1</RootNamespace>
+    <AssemblyName>Tamp.Heft.V1</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>Tamp.Heft.V1</PackageId>
+    <Description>Tamp CommandPlan wrapper for Rushstack Heft 1.x, the build orchestrator behind SharePoint Framework 1.22+ and Rush monorepos. Typed build / test / clean / run verbs plus rig-defined phase actions (e.g. package-solution). Resolves the project's own pinned Heft and runs it as `node &lt;heft bin&gt;`, never through a .cmd shim and never by downloading it.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(TampCorePath)" Condition="'$(TampCoreMode)' == 'project'" />
+    <PackageReference Include="Tamp.Core" Condition="'$(TampCoreMode)' == 'package'" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+
+</Project>
