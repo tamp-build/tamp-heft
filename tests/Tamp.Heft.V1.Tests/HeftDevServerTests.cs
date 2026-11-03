@@ -48,10 +48,17 @@ public sealed class HeftDevServerTests
         public string Web { get; }
         public int Port { get; } = FreePort();
         public string StatePath { get; }
-        public StringWriter Output { get; } = new();
+        private readonly StringWriter _buffer = new();
+
+        // The server writes from its output-reader threads; a synchronized writer locks on itself, so reads take
+        // the same lock.
+        public TextWriter Output { get; }
+
+        public string Log { get { lock (Output) return _buffer.ToString(); } }
 
         public Fixture(bool https = true)
         {
+            Output = TextWriter.Synchronized(_buffer);
             Web = Project.Dir("web");
             var script = Project.InstallHeft(Web);
             File.WriteAllText(script, FakeHeft.Replace("\r\n", "\n", StringComparison.Ordinal));
@@ -79,7 +86,7 @@ public sealed class HeftDevServerTests
 
         public void Dispose()
         {
-            Output.Dispose();
+            _buffer.Dispose();
             Project.Dispose();
         }
     }
@@ -119,7 +126,7 @@ public sealed class HeftDevServerTests
             Assert.True(state.IsLive());
             Assert.DoesNotContain("debugManifestsFile", File.ReadAllText(f.StatePath), StringComparison.Ordinal);
 
-            var log = f.Output.ToString();
+            var log = f.Log;
             Assert.Contains($"Heft dev server ready: https://localhost:{f.Port}/", log, StringComparison.Ordinal);
             Assert.Contains("fake heft start", log, StringComparison.Ordinal);
 
@@ -135,7 +142,7 @@ public sealed class HeftDevServerTests
         Assert.False(File.Exists(f.StatePath));
         Assert.False(IsRunning(server.ProcessId));
         Assert.True(WaitUntil(() => !IsRunning(childPid), TimeSpan.FromSeconds(5)), "the whole process tree must be killed");
-        Assert.Contains("Heft dev server stopped.", f.Output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Heft dev server stopped.", f.Log, StringComparison.Ordinal);
         await server.DisposeAsync(); // idempotent
     }
 
@@ -182,7 +189,7 @@ public sealed class HeftDevServerTests
             .SetEnvironmentVariable("FAKE_NEVER_LISTEN", "1")
             .SetReadyTimeout(TimeSpan.FromSeconds(2))));
         Assert.Contains("manifests.js", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("Heft dev server stopped.", f.Output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Heft dev server stopped.", f.Log, StringComparison.Ordinal);
         Assert.False(File.Exists(f.StatePath));
     }
 
@@ -276,7 +283,7 @@ public sealed class HeftDevServerTests
         LiveLikeState(f, me.Id, DateTimeOffset.UtcNow.AddDays(-1)).WriteAtomically(f.StatePath);
 
         await using var server = await HeftDevServer.StartAsync(f.Settings());
-        Assert.Contains("Removing stale", f.Output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Removing stale", f.Log, StringComparison.Ordinal);
         Assert.Equal(server.ProcessId, HeftDevServerState.TryRead(f.StatePath)!.Pid);
     }
 
@@ -288,10 +295,10 @@ public sealed class HeftDevServerTests
         using var cts = new CancellationTokenSource();
         var run = HeftDevServer.RunUntilCancelledAsync(f.Settings(), cts.Token);
 
-        Assert.True(WaitUntil(() => File.Exists(f.StatePath) || run.IsCompleted, TimeSpan.FromSeconds(30)));
-        Assert.False(run.IsCompleted, f.Output.ToString());
+        // The state file is written just before the "Press Ctrl+C" line, so wait for the line: it comes last.
+        Assert.True(WaitUntil(() => f.Log.Contains("Press Ctrl+C", StringComparison.Ordinal) || run.IsCompleted, TimeSpan.FromSeconds(30)));
+        Assert.False(run.IsCompleted, f.Log);
         var pid = HeftDevServerState.TryRead(f.StatePath)!.Pid;
-        Assert.Contains("Press Ctrl+C", f.Output.ToString(), StringComparison.Ordinal);
 
         cts.Cancel();
         await run;
