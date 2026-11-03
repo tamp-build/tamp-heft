@@ -16,6 +16,7 @@ on:
         default: true
 
 permissions:
+  id-token: write   # OIDC token for nuget.org trusted publishing
   contents: read
 
 env:
@@ -111,25 +112,21 @@ jobs:
       # this step re-runs Compile / Test / Pack — a few extra seconds in
       # exchange for keeping the target graph dependency-honest.
       #
-      # The diagnostic step is intentionally kept — surfaces missing /
-      # rotated secrets fast (with char count, no value leak) instead of
-      # letting an empty key fall through into the Push step.
-      - name: Diagnostics — secret presence check
+      # Auth is nuget.org trusted publishing (OIDC): NuGet/login exchanges the
+      # job's short-lived id-token for a temporary API key, so there is no
+      # long-lived secret to expire or rotate. The policy on nuget.org is
+      # pinned to this repo, this workflow file and the 'release' environment.
+      - name: NuGet login (OIDC -> temp API key)
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
-        env:
-          NUGET_API_KEY: ${{ secrets.tamp_nuget_api_key }}
-        run: |
-          if [ -n "$NUGET_API_KEY" ]; then
-            echo "NUGET_API_KEY is set (${#NUGET_API_KEY} chars)."
-          else
-            echo "::error::NUGET_API_KEY is empty. Check the tamp_nuget_api_key org secret."
-            exit 1
-          fi
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: BrewingCoder
 
       - name: tamp Push
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
         env:
-          NUGET_API_KEY: ${{ secrets.tamp_nuget_api_key }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: dotnet tamp Push
 
       - name: Dry-run summary
