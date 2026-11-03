@@ -43,7 +43,7 @@ public sealed class RealSpfxDevServerTests
                 .SetClean()
                 .SetStatePath(statePath)
                 .SetOutput(log)
-                .SetReadyTimeout(TimeSpan.FromMinutes(10)));
+                .SetReadyTimeout(TimeSpan.FromMinutes(5)));
         }
         catch
         {

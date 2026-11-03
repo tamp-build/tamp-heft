@@ -14,6 +14,7 @@ on:
       - 'src/Tamp.Heft.V1/HeftBinaryResolver.cs'
       - 'tests/Tamp.Heft.V1.Tests/RealSpfxDevServerTests.cs'
       - 'tests/spfx-fixture/**'
+      - '.github/scripts/provision-spfx-dev-cert.cjs'
       - '.github/workflows/spfx-integration.yml'
 
 permissions:
@@ -56,6 +57,23 @@ jobs:
       - name: Install the fixture (npm ci, from the committed lockfile)
         working-directory: tests/spfx-fixture
         run: npm ci --no-audit --no-fund
+
+      # On Windows, heft start finds no trusted dev certificate and runs `certutil -user -addstore root`,
+      # which waits for a confirmation dialog nobody can click on a hosted runner (the first run hung until
+      # the readiness timeout). Create the certificate without trusting it, then trust its CA in the machine
+      # root store, which needs admin (runners have it) but no dialog.
+      - name: Provision a trusted dev certificate (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ca = node .github/scripts/provision-spfx-dev-cert.cjs tests/spfx-fixture | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { throw "certificate provisioning failed" }
+          Write-Host "CA certificate: $ca"
+          certutil -f -addstore Root "$ca"
+          if ($LASTEXITCODE -ne 0) { throw "certutil -addstore Root failed" }
+          # The same check debug-certificate-manager makes; fail here, not ten minutes into a hung server.
+          certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0
+          if ($LASTEXITCODE -ne 0) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
 
       - name: Run HeftDevServer against heft start
         shell: bash
