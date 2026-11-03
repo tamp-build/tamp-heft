@@ -4,7 +4,7 @@
 
 | Package | Status |
 |---|---|
-| `Tamp.Heft.V1` | 0.1.0 (initial) |
+| `Tamp.Heft.V1` | 0.2.0 |
 
 ```bash
 dotnet add package Tamp.Heft.V1
@@ -47,9 +47,38 @@ Target Package => _ => _
 
 Every settings type also has `SetWorkingDirectory`, `SetEnvironmentVariable`, `SetNodeOptions` (e.g. `--max-old-space-size=8192`), the global `SetDebug` / `SetUnmanaged`, and `AddArgument` for plugin-defined parameters such as `--emit-stats`. There are object-init overloads for every verb.
 
-**Watch modes are refused.** `start` and the `*-watch` actions never exit, so a build step that ran one would hang the build machine. `Heft.Raw` is there if you really mean it.
+**Watch modes are refused.** `start` and the `*-watch` actions never exit, so a build step that ran one would hang the build machine. For a local dev server, use the managed [`HeftDevServer`](#dev-server) below; `Heft.Raw` is there if you really mean it.
 
 **Exit codes.** Heft exits non-zero when any task fails (compile, lint, test, bundle), so the default `ProcessRunner` behaviour is right; there's no "findings found" code to tolerate.
+
+## Dev server
+
+`HeftDevServer` runs the project's pinned Heft as `heft start` (the SPFx rig's alias for `build-watch --serve`) for local browser work: SPFx debugging, Form Customizer checks, Playwright evidence. It is opt-in and separate from the `Heft.*` verbs, so keep it out of your `Ci` target's dependencies.
+
+```csharp
+// One target that serves, runs the browser automation, then stops the server.
+Target BrowserEvidence => _ => _
+    .DependsOn(nameof(NpmCi))
+    .Executes(async () =>
+    {
+        await using var server = await HeftDevServer.StartAsync(s => s
+            .SetWorkingDirectory(Web)
+            .SetReadyTimeout(TimeSpan.FromMinutes(3)));
+        RunPlaywright(server.Url, server.ManifestsUrl); // https://localhost:4321/, .../temp/build/manifests.js
+    }); // disposing kills the whole process tree
+
+// Serve until Ctrl+C.
+Target Serve => _ => _.Executes(() => HeftDevServer.RunUntilCancelled(s => s.SetWorkingDirectory(Web)));
+```
+
+- **Where it listens.** Read from the project's `config/serve.json` the way the SPFx rig reads it: `hostname`, else `ipAddress`, else `localhost`; `port` (default 4321); `https` (default false). `SetServeConfigPath` picks another file; `SetServerUrl` skips `serve.json` (for other rigs, or a `{tenantDomain}` hostname).
+- **Ready means served.** `StartAsync` returns only once an HTTP(S) GET of `temp/build/manifests.js` (`SetReadinessPath`) succeeds. That file only exists after the first webpack compilation, so an open port isn't enough. If Heft exits first, or `SetReadyTimeout` (default 5 minutes) runs out, it throws with the last lines of Heft's output. The certificate check is relaxed only for loopback hosts, to accept the self-signed SPFx dev certificate.
+- **No stale servers.** Startup refuses if the port is already in use, so readiness can't be answered by some other server. It also refuses if the state file belongs to a live server from an earlier run (same PID *and* process start time). A state file left by a dead process is removed.
+- **Reporting.** Once ready it prints the URL, port, manifests URL, PID and state-file path. It writes a `HeftDevServerState` JSON file atomically and announces it with `artifact.produced` (kind `heft-dev-server`) on the event stream, next to the usual `tool.invoked` / `tool.exited`. The file holds only the URL, manifests URL, port, PID, process start time, ready timestamp and versions: no cookies, credentials or debug query strings. The default path is `.tamp/temp/heft-dev-server/<port>.json`, in Tamp's ignored work area; `SetStatePath` changes it.
+- **Shutdown.** Disposing the handle, Ctrl+C, SIGTERM, SIGHUP and normal process exit all kill the whole process tree (Node and its webpack children) and delete the state file. Because the tree is killed, `tool.exited` reports a non-zero exit code (137 on Linux) for a server that was stopped on purpose.
+- **Never deploys.** Only `start` or a `*-watch` action can run (`SetAction("build-watch").AddArgument("--serve")` for a rig without the alias), and any action or argument containing `deploy` (`deploy-azure-storage`, `dev-deploy`) is refused.
+
+Out of scope for now: a detached mode (start in one `dotnet tamp` command, stop in a later one) and a dedicated `service.ready` event type, which needs Tamp.Core.
 
 ## Binary resolution
 
