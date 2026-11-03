@@ -228,6 +228,31 @@ public sealed class HeftDevServerTests
         }
     }
 
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("::1")]
+    public async Task Port_Check_Sees_A_Listener_On_Either_Loopback_Family(string bind)
+    {
+        // "localhost" means both ::1 and 127.0.0.1; a listener on only one of them must still count as in use.
+        TcpListener listener;
+        try
+        {
+            listener = new TcpListener(IPAddress.Parse(bind), 0);
+            listener.Start();
+        }
+        catch (SocketException) { return; } // this address family isn't available on the runner
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            Assert.True(await HeftDevServer.IsPortInUseAsync("localhost", port, CancellationToken.None));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+        Assert.False(await HeftDevServer.IsPortInUseAsync("localhost", FreePort(), CancellationToken.None));
+    }
+
     [Fact]
     public async Task Live_State_From_An_Earlier_Run_Is_Refused()
     {

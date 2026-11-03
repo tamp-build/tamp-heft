@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Reflection;
@@ -452,17 +453,31 @@ public sealed class HeftDevServer : IAsyncDisposable, IDisposable
 
     internal static async Task<bool> IsPortInUseAsync(string host, int port, CancellationToken cancellationToken)
     {
+        // Probe every address the host can mean, in parallel. "localhost" resolves to ::1 and 127.0.0.1, and a server
+        // may listen on just one of them; connecting by name stops at the first address, and on Windows a refused
+        // connection takes about two seconds, which used to run out the timeout before 127.0.0.1 was tried.
+        var addresses = new List<IPAddress>();
+        try { addresses.AddRange(await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false)); }
+        catch (SocketException) { }
+        if (HeftServeConfig.IsLoopback(host)) addresses.AddRange(new[] { IPAddress.Loopback, IPAddress.IPv6Loopback });
+
+        var probes = addresses.Distinct().Select(a => IsListeningAsync(a, port, cancellationToken)).ToArray();
+        return (await Task.WhenAll(probes).ConfigureAwait(false)).Any(listening => listening);
+    }
+
+    private static async Task<bool> IsListeningAsync(IPAddress address, int port, CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(2));
-        using var client = new TcpClient();
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
         try
         {
-            await client.ConnectAsync(host, port, timeout.Token).ConfigureAwait(false);
+            using var client = new TcpClient(address.AddressFamily);
+            await client.ConnectAsync(address, port, timeout.Token).ConfigureAwait(false);
             return true;
         }
         catch (SocketException)
         {
-            return false;
+            return false; // refused, or this address family isn't available here
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
