@@ -17,7 +17,8 @@ namespace Tamp.Heft.V1;
 /// </para>
 /// <para>
 /// <strong>Watch modes are refused.</strong> <c>start</c> and the <c>*-watch</c> actions never exit, so a
-/// build step that ran one would hang the build machine. <see cref="Raw"/> remains for a deliberate use.
+/// build step that ran one would hang the build machine. For a local dev server use <see cref="HeftDevServer"/>;
+/// <see cref="Raw"/> remains for a deliberate use.
 /// </para>
 /// </remarks>
 /// <example>

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-11-03
+
+### Added
+
+- `HeftDevServer`: a managed `heft start` for local browser work (#1). Verified against the SPFx 1.24.1 rig (Heft 1.3.2).
+  - `StartAsync` returns once an HTTP(S) request for `temp/build/manifests.js` succeeds; disposing it kills the whole process tree. `RunUntilCancelled` serves until Ctrl+C.
+  - The URL and port come from `config/serve.json` (`hostname` / `ipAddress`, `port`, `https`), or from `SetServerUrl`.
+  - Refuses to start when the port is already in use, or when the state file belongs to a live server from an earlier run (PID plus process start time).
+  - Writes a `HeftDevServerState` file atomically once ready (default `.tamp/temp/heft-dev-server/<port>.json`) and emits `artifact.produced` for it with kind `heft-dev-server`. The file is deleted on shutdown.
+  - Ctrl+C, SIGTERM, SIGHUP and process exit all stop the server and remove the state file.
+  - Only `start` / `*-watch` actions run; anything mentioning `deploy` is refused.
+- `HeftDevServerSettings`, `HeftServeConfig`, `HeftDevServerState`.
+
 ## [0.1.0] — 2026-10-31
 
 ### Added
