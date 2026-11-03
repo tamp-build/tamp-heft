@@ -78,6 +78,8 @@ Target Serve => _ => _.Executes(() => HeftDevServer.RunUntilCancelled(s => s.Set
 - **Shutdown.** Disposing the handle, Ctrl+C, SIGTERM, SIGHUP and normal process exit all kill the whole process tree (Node and its webpack children) and delete the state file. Because the tree is killed, `tool.exited` reports a non-zero exit code (137 on Linux) for a server that was stopped on purpose.
 - **Never deploys.** Only `start` or a `*-watch` action can run (`SetAction("build-watch").AddArgument("--serve")` for a rig without the alias), and any action or argument containing `deploy` (`deploy-azure-storage`, `dev-deploy`) is refused.
 
+**Verified against a real SPFx project.** `tests/spfx-fixture` is a stock SPFx 1.24.1 solution with a Form Customizer (Heft 1.3.2). The `SPFx integration` workflow (nightly, on demand, and on PRs that touch the dev server) runs `npm ci` there and checks that `heft start` becomes ready, serves the component's manifests over HTTPS with Heft's own dev certificate, and leaves nothing listening after disposal. A cold `--clean` start was ready in about 6 seconds on a 4-core Linux machine, well inside the 5-minute default `ReadyTimeout`. To run it locally: `npm ci` in the fixture, then `TAMP_HEFT_SPFX_FIXTURE=<fixture path> dotnet test --filter "FullyQualifiedName~RealSpfx"`.
+
 Out of scope for now: a detached mode (start in one `dotnet tamp` command, stop in a later one) and a dedicated `service.ready` event type, which needs Tamp.Core.
 
 ## Binary resolution

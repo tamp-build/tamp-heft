@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Added
+
+- Integration test of `HeftDevServer` against a real SPFx `heft start` (#2): `tests/spfx-fixture` (a stock SPFx 1.24.1 Form Customizer solution with its lockfile), `RealSpfxDevServerTests` (runs only when `TAMP_HEFT_SPFX_FIXTURE` is set), and the `SPFx integration` workflow on ubuntu and windows, nightly, on demand, and on PRs that touch the dev server.
+
 ## [0.2.0] — 2026-11-03
 
 ### Added
