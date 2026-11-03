@@ -60,20 +60,37 @@ jobs:
 
       # On Windows, heft start finds no trusted dev certificate and runs `certutil -user -addstore root`,
       # which waits for a confirmation dialog nobody can click on a hosted runner (the first run hung until
-      # the readiness timeout). Create the certificate without trusting it, then trust its CA in the machine
-      # root store, which needs admin (runners have it) but no dialog.
+      # the readiness timeout). Heft only accepts a CA in the *user* root store (it checks with
+      # `certutil -user -verifystore root`), and adding one there through CryptoAPI is what raises the
+      # dialog. So: create the certificate without trusting it, add the CA to the machine store (admin, no
+      # dialog), and copy that registry entry into the user store, which raises nothing.
       - name: Provision a trusted dev certificate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ca = node .github/scripts/provision-spfx-dev-cert.cjs tests/spfx-fixture | Select-Object -Last 1
           if ($LASTEXITCODE -ne 0) { throw "certificate provisioning failed" }
-          Write-Host "CA certificate: $ca"
+          $thumb = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($ca)).Thumbprint
+          Write-Host "CA certificate: $ca ($thumb)"
           certutil -f -addstore Root "$ca"
           if ($LASTEXITCODE -ne 0) { throw "certutil -addstore Root failed" }
-          # The same check debug-certificate-manager makes; fail here, not ten minutes into a hung server.
-          certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0
+
+          $machine = "HKLM:\SOFTWARE\Microsoft\SystemCertificates\ROOT\Certificates\$thumb"
+          $user = "HKCU:\Software\Microsoft\SystemCertificates\Root\Certificates\$thumb"
+          $blob = (Get-ItemProperty -Path $machine -Name Blob).Blob
+          New-Item -Path $user -Force | Out-Null
+          New-ItemProperty -Path $user -Name Blob -PropertyType Binary -Value $blob -Force | Out-Null
+
+          # The same check debug-certificate-manager makes; fail here, not minutes into a hung server.
+          certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Registry copy not visible to certutil -user; trying Import-Certificate with a 30s limit."
+            $job = Start-Job { Import-Certificate -FilePath $using:ca -CertStoreLocation Cert:\CurrentUser\Root }
+            if (-not (Wait-Job $job -Timeout 30)) { Stop-Job $job; Write-Host "Import-Certificate timed out (dialog)." }
+            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Null
+          }
           if ($LASTEXITCODE -ne 0) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
+          Write-Host "Dev CA is trusted for the current user."
 
       - name: Run HeftDevServer against heft start
         shell: bash
