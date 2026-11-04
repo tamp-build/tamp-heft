@@ -40,9 +40,9 @@ public sealed class HeftDevServerTests
         else server.listen(+env.FAKE_PORT, () => console.log('listening on ' + env.FAKE_PORT));
         """;
 
-    private static readonly bool HaveNode = HeftBinaryResolver.FindOnPath("node") is not null;
+    internal static readonly bool HaveNode = HeftBinaryResolver.FindOnPath("node") is not null;
 
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         public TempProject Project { get; } = new();
         public string Web { get; }
@@ -141,7 +141,7 @@ public sealed class HeftDevServerTests
         Assert.True(server.IsStopping);
         Assert.False(File.Exists(f.StatePath));
         Assert.False(IsRunning(server.ProcessId));
-        Assert.True(WaitUntil(() => !IsRunning(childPid), TimeSpan.FromSeconds(5)), "the whole process tree must be killed");
+        Assert.True(await WaitUntilAsync(() => !IsRunning(childPid), TimeSpan.FromSeconds(5)), "the whole process tree must be killed");
         Assert.Contains("Heft dev server stopped.", f.Log, StringComparison.Ordinal);
         await server.DisposeAsync(); // idempotent
     }
@@ -165,7 +165,7 @@ public sealed class HeftDevServerTests
         Assert.False(File.Exists(f.StatePath));
         await other;
         Assert.False(IsRunning(server.ProcessId));
-        Assert.True(WaitUntil(() => !IsRunning(childPid), TimeSpan.FromSeconds(5)));
+        Assert.True(await WaitUntilAsync(() => !IsRunning(childPid), TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public sealed class HeftDevServerTests
         var run = HeftDevServer.RunUntilCancelledAsync(f.Settings(), cts.Token);
 
         // The state file is written just before the "Press Ctrl+C" line, so wait for the line: it comes last.
-        Assert.True(WaitUntil(() => f.Log.Contains("Press Ctrl+C", StringComparison.Ordinal) || run.IsCompleted, TimeSpan.FromSeconds(30)));
+        Assert.True(await WaitUntilAsync(() => f.Log.Contains("Press Ctrl+C", StringComparison.Ordinal) || run.IsCompleted, TimeSpan.FromSeconds(60)), f.Log);
         Assert.False(run.IsCompleted, f.Log);
         var pid = HeftDevServerState.TryRead(f.StatePath)!.Pid;
 
@@ -353,7 +353,7 @@ public sealed class HeftDevServerTests
         return (certPath, keyPath);
     }
 
-    private static bool IsRunning(int pid)
+    internal static bool IsRunning(int pid)
     {
         try
         {
@@ -366,7 +366,20 @@ public sealed class HeftDevServerTests
         }
     }
 
-    private static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
+    // For async tests: waits without holding a thread, so a busy CI runner's thread pool isn't starved of the threads
+    // the server's start-up and readiness polling need.
+    internal static async Task<bool> WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < timeout)
+        {
+            if (condition()) return true;
+            await Task.Delay(100);
+        }
+        return condition();
+    }
+
+    internal static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
     {
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < timeout)

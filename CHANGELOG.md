@@ -6,8 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-04
+
+Requires Tamp.Core 1.18.0.
+
+### Changed
+
+- **`HeftDevServer` is built on Tamp.Core's `ManagedProcess`** ([tamp-build/tamp#125](https://github.com/tamp-build/tamp/issues/125)). Process start, readiness, process-tree kill, the stop race and signal handling now come from the core, which owns Ctrl+C / SIGTERM / SIGHUP for the whole run. The public API and the state file are unchanged.
+- **Inside a `tamp` run, Ctrl+C ends a `RunUntilCancelled` target as `cancelled`** (exit 130), as Tamp.Core 1.18.0 reports interrupts, instead of returning normally. Cancelling its `cancellationToken` still just returns.
+- A server still running when the build ends is now stopped then (Tamp.Core's backstop), so one started in one target can serve later ones, but never outlives the build. Its state file is removed however it stops.
+
 ### Added
 
+- **`service.ready` / `service.stopped` events** (#3): `HeftDevServer` reports itself as a service (kind `heft-dev-server`, URL, port, PID, manifests URL, state-file path) with the reason it stopped (`requested`, `signal`, `exited`, `timeout`), on the same span as `tool.invoked` / `tool.exited`. `artifact.produced` for the state file stays for one more minor version.
+- `HeftDevServer.ExitCode` and `HeftDevServer.StopReason`.
 - Integration test of `HeftDevServer` against a real SPFx `heft start` (#2): `tests/spfx-fixture` (a stock SPFx 1.24.1 Form Customizer solution with its lockfile), `RealSpfxDevServerTests` (runs only when `TAMP_HEFT_SPFX_FIXTURE` is set), and the `SPFx integration` workflow (Linux; nightly, on demand, and on PRs that touch the dev server). Windows isn't covered in CI: Heft needs its dev CA in the user root store, which Windows only allows interactively.
 
 ## [0.2.0] — 2026-11-03
