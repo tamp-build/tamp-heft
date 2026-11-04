@@ -63,7 +63,8 @@ public sealed class HeftDevServer : IAsyncDisposable, IDisposable
     private readonly ManagedProcess _process;
     private readonly TextWriter _output;
     private bool _stateWritten;
-    private int _finished;
+    private readonly object _stopGate = new();
+    private bool _finished;
 
     private HeftDevServer(ManagedProcess process, HeftServeConfig serve, Uri manifestsUrl, string statePath, string? heftVersion, TextWriter output)
     {
@@ -272,18 +273,23 @@ public sealed class HeftDevServer : IAsyncDisposable, IDisposable
         OnStopped();
     }
 
-    // Once, however it stopped: delete our state file and say so.
+    // Once, however it stopped: delete our state file and say so. A concurrent caller (Ctrl+C racing the target's
+    // dispose, or the exit continuation) waits for the first to finish, so no Dispose returns with the file still there.
     private void OnStopped()
     {
-        if (Interlocked.Exchange(ref _finished, 1) == 1) return;
-        if (_stateWritten && HeftDevServerState.TryRead(StatePath)?.Pid == ProcessId)
+        lock (_stopGate)
         {
-            try { File.Delete(StatePath); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            if (_finished) return;
+            _finished = true;
+            if (_stateWritten && HeftDevServerState.TryRead(StatePath)?.Pid == ProcessId)
+            {
+                try { File.Delete(StatePath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            WriteLine(_process.ExitCode is null
+                ? $"Heft dev server (pid {ProcessId.ToString(CultureInfo.InvariantCulture)}) did not exit within the shutdown timeout."
+                : "Heft dev server stopped.");
         }
-        WriteLine(_process.ExitCode is null
-            ? $"Heft dev server (pid {ProcessId.ToString(CultureInfo.InvariantCulture)}) did not exit within the shutdown timeout."
-            : "Heft dev server stopped.");
     }
 
     private void WriteState()
