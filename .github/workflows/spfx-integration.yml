@@ -1,0 +1,79 @@
+name: SPFx integration
+
+# HeftDevServer against a real SharePoint Framework `heft start` (tests/spfx-fixture). Too slow and heavy
+# (~1 GB of node_modules) for every PR, so it runs nightly, on demand, and on PRs that touch the dev server
+# or the fixture.
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/Tamp.Heft.V1/HeftDevServer*.cs'
+      - 'src/Tamp.Heft.V1/HeftServeConfig.cs'
+      - 'src/Tamp.Heft.V1/HeftBinaryResolver.cs'
+      - 'tests/Tamp.Heft.V1.Tests/RealSpfxDevServerTests.cs'
+      - 'tests/spfx-fixture/**'
+      - '.github/workflows/spfx-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  real-heft-start:
+    name: real heft start (${{ matrix.os }})
+    # Linux only. On Windows, heft start insists on its dev CA being in the *current user's* trusted root store,
+    # and Windows only adds a certificate there after an interactive confirmation (Import-Certificate on a hosted
+    # runner: "UI is not allowed in this operation"; certutil just waits for the dialog). Machine-store and registry
+    # workarounds aren't accepted by Heft's check. See https://github.com/tamp-build/tamp-heft/issues/7.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    # A hung server must not hold a runner for hours.
+    timeout-minutes: 25
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      TampCoreMode: package
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/spfx-fixture/package-lock.json
+
+      - name: Install the fixture (npm ci, from the committed lockfile)
+        working-directory: tests/spfx-fixture
+        run: npm ci --no-audit --no-fund
+
+      - name: Run HeftDevServer against heft start
+        shell: bash
+        run: |
+          export TAMP_HEFT_SPFX_FIXTURE="$GITHUB_WORKSPACE/tests/spfx-fixture"
+          dotnet test tests/Tamp.Heft.V1.Tests -f net10.0 --configuration Release \
+            --filter "FullyQualifiedName~RealSpfx" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=spfx-integration.trx" --results-directory ./TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spfx-integration-${{ matrix.os }}
+          path: ./TestResults/**/*.trx
+          if-no-files-found: warn
