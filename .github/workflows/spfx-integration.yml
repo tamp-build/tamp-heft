@@ -83,11 +83,11 @@ jobs:
 
           # The same check debug-certificate-manager makes; fail here, not minutes into a hung server.
           function Test-UserTrust {
-            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0
+            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Host
             return ($LASTEXITCODE -eq 0)
           }
           Write-Host "--- user root store, by name, after the registry copy:"
-          certutil -user -store root rushstack-certificate-manager.localhost
+          certutil -user -store root rushstack-certificate-manager.localhost | Out-Host
           $trusted = Test-UserTrust
           if (-not $trusted) {
             Write-Host "--- registry copy not accepted; trying Import-Certificate with a 30s limit."
@@ -102,6 +102,7 @@ jobs:
           }
           if (-not $trusted) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
           Write-Host "Dev CA is trusted for the current user."
+          exit 0
 
       - name: Run HeftDevServer against heft start
         shell: bash
