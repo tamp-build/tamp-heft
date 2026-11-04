@@ -40,9 +40,9 @@ public sealed class HeftDevServerTests
         else server.listen(+env.FAKE_PORT, () => console.log('listening on ' + env.FAKE_PORT));
         """;
 
-    private static readonly bool HaveNode = HeftBinaryResolver.FindOnPath("node") is not null;
+    internal static readonly bool HaveNode = HeftBinaryResolver.FindOnPath("node") is not null;
 
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         public TempProject Project { get; } = new();
         public string Web { get; }
@@ -353,7 +353,7 @@ public sealed class HeftDevServerTests
         return (certPath, keyPath);
     }
 
-    private static bool IsRunning(int pid)
+    internal static bool IsRunning(int pid)
     {
         try
         {
@@ -366,7 +366,7 @@ public sealed class HeftDevServerTests
         }
     }
 
-    private static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
+    internal static bool WaitUntil(Func<bool> condition, TimeSpan timeout)
     {
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < timeout)
