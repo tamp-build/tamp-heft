@@ -305,8 +305,13 @@ public sealed class HeftDevServer : IAsyncDisposable, IDisposable
             HeftVersion = HeftVersion,
             TampHeftVersion = typeof(HeftDevServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
         };
-        state.WriteAtomically(StatePath);
-        _stateWritten = true;
+        lock (_stopGate)
+        {
+            // It stopped between becoming ready and here: OnStopped has run, so a file written now would be left behind.
+            if (_finished) return;
+            state.WriteAtomically(StatePath);
+            _stateWritten = true;
+        }
         BuildEvents.Artifact(StatePath, kind: ArtifactKind, sizeBytes: new FileInfo(StatePath).Length);
 
         WriteLine($"Heft dev server ready: {Url}");
