@@ -82,14 +82,25 @@ jobs:
           New-ItemProperty -Path $user -Name Blob -PropertyType Binary -Value $blob -Force | Out-Null
 
           # The same check debug-certificate-manager makes; fail here, not minutes into a hung server.
-          certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Registry copy not visible to certutil -user; trying Import-Certificate with a 30s limit."
-            $job = Start-Job { Import-Certificate -FilePath $using:ca -CertStoreLocation Cert:\CurrentUser\Root }
-            if (-not (Wait-Job $job -Timeout 30)) { Stop-Job $job; Write-Host "Import-Certificate timed out (dialog)." }
-            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Null
+          function Test-UserTrust {
+            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0
+            return ($LASTEXITCODE -eq 0)
           }
-          if ($LASTEXITCODE -ne 0) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
+          Write-Host "--- user root store, by name, after the registry copy:"
+          certutil -user -store root rushstack-certificate-manager.localhost
+          $trusted = Test-UserTrust
+          if (-not $trusted) {
+            Write-Host "--- registry copy not accepted; trying Import-Certificate with a 30s limit."
+            $job = Start-Job { Import-Certificate -FilePath $using:ca -CertStoreLocation Cert:\CurrentUser\Root }
+            if (Wait-Job $job -Timeout 30) {
+              Write-Host "Import-Certificate job state: $($job.State)"
+              Receive-Job $job -ErrorAction Continue | Format-List Subject, Thumbprint | Out-String | Write-Host
+            } else {
+              Stop-Job $job; Write-Host "Import-Certificate timed out (a confirmation dialog, presumably)."
+            }
+            $trusted = Test-UserTrust
+          }
+          if (-not $trusted) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
           Write-Host "Dev CA is trusted for the current user."
 
       - name: Run HeftDevServer against heft start
