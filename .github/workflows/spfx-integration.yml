@@ -14,7 +14,6 @@ on:
       - 'src/Tamp.Heft.V1/HeftBinaryResolver.cs'
       - 'tests/Tamp.Heft.V1.Tests/RealSpfxDevServerTests.cs'
       - 'tests/spfx-fixture/**'
-      - '.github/scripts/provision-spfx-dev-cert.cjs'
       - '.github/workflows/spfx-integration.yml'
 
 permissions:
@@ -23,12 +22,16 @@ permissions:
 jobs:
   real-heft-start:
     name: real heft start (${{ matrix.os }})
+    # Linux only. On Windows, heft start insists on its dev CA being in the *current user's* trusted root store,
+    # and Windows only adds a certificate there after an interactive confirmation (Import-Certificate on a hosted
+    # runner: "UI is not allowed in this operation"; certutil just waits for the dialog). Machine-store and registry
+    # workarounds aren't accepted by Heft's check. See https://github.com/tamp-build/tamp-heft/issues/7.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    # A dev-certificate prompt or a hung server must not hold a runner for hours.
+    # A hung server must not hold a runner for hours.
     timeout-minutes: 25
     env:
       DOTNET_NOLOGO: '1'
@@ -57,52 +60,6 @@ jobs:
       - name: Install the fixture (npm ci, from the committed lockfile)
         working-directory: tests/spfx-fixture
         run: npm ci --no-audit --no-fund
-
-      # On Windows, heft start finds no trusted dev certificate and runs `certutil -user -addstore root`,
-      # which waits for a confirmation dialog nobody can click on a hosted runner (the first run hung until
-      # the readiness timeout). Heft only accepts a CA in the *user* root store (it checks with
-      # `certutil -user -verifystore root`), and adding one there through CryptoAPI is what raises the
-      # dialog. So: create the certificate without trusting it, add the CA to the machine store (admin, no
-      # dialog), and copy that registry entry into the user store, which raises nothing.
-      - name: Provision a trusted dev certificate (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ca = node .github/scripts/provision-spfx-dev-cert.cjs tests/spfx-fixture | Select-Object -Last 1
-          if ($LASTEXITCODE -ne 0) { throw "certificate provisioning failed" }
-          $thumb = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($ca)).Thumbprint
-          Write-Host "CA certificate: $ca ($thumb)"
-          certutil -f -addstore Root "$ca"
-          if ($LASTEXITCODE -ne 0) { throw "certutil -addstore Root failed" }
-
-          $machine = "HKLM:\SOFTWARE\Microsoft\SystemCertificates\ROOT\Certificates\$thumb"
-          $user = "HKCU:\Software\Microsoft\SystemCertificates\Root\Certificates\$thumb"
-          $blob = (Get-ItemProperty -Path $machine -Name Blob).Blob
-          New-Item -Path $user -Force | Out-Null
-          New-ItemProperty -Path $user -Name Blob -PropertyType Binary -Value $blob -Force | Out-Null
-
-          # The same check debug-certificate-manager makes; fail here, not minutes into a hung server.
-          function Test-UserTrust {
-            certutil -user -verifystore root 731c321744e34650a202e3ef91c3c1b0 | Out-Host
-            return ($LASTEXITCODE -eq 0)
-          }
-          Write-Host "--- user root store, by name, after the registry copy:"
-          certutil -user -store root rushstack-certificate-manager.localhost | Out-Host
-          $trusted = Test-UserTrust
-          if (-not $trusted) {
-            Write-Host "--- registry copy not accepted; trying Import-Certificate with a 30s limit."
-            $job = Start-Job { Import-Certificate -FilePath $using:ca -CertStoreLocation Cert:\CurrentUser\Root }
-            if (Wait-Job $job -Timeout 30) {
-              Write-Host "Import-Certificate job state: $($job.State)"
-              Receive-Job $job -ErrorAction Continue | Format-List Subject, Thumbprint | Out-String | Write-Host
-            } else {
-              Stop-Job $job; Write-Host "Import-Certificate timed out (a confirmation dialog, presumably)."
-            }
-            $trusted = Test-UserTrust
-          }
-          if (-not $trusted) { throw "the dev CA is not visible to 'certutil -user -verifystore root'; heft start would prompt" }
-          Write-Host "Dev CA is trusted for the current user."
-          exit 0
 
       - name: Run HeftDevServer against heft start
         shell: bash

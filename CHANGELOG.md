@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Added
 
-- Integration test of `HeftDevServer` against a real SPFx `heft start` (#2): `tests/spfx-fixture` (a stock SPFx 1.24.1 Form Customizer solution with its lockfile), `RealSpfxDevServerTests` (runs only when `TAMP_HEFT_SPFX_FIXTURE` is set), and the `SPFx integration` workflow on ubuntu and windows, nightly, on demand, and on PRs that touch the dev server.
+- Integration test of `HeftDevServer` against a real SPFx `heft start` (#2): `tests/spfx-fixture` (a stock SPFx 1.24.1 Form Customizer solution with its lockfile), `RealSpfxDevServerTests` (runs only when `TAMP_HEFT_SPFX_FIXTURE` is set), and the `SPFx integration` workflow (Linux; nightly, on demand, and on PRs that touch the dev server). Windows isn't covered in CI: Heft needs its dev CA in the user root store, which Windows only allows interactively.
 
 ## [0.2.0] — 2026-11-03
 
